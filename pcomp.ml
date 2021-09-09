@@ -1,42 +1,35 @@
 
 module L = List
 
-type compressor_t = float * float;;
-let compress c x = 
-  let knee, ratio = c in
-  if (x < knee) then x
-  else (knee +. ((x -. knee) /. ratio))
-;;
+type compressor_t = float * float * float option
 
-let makeup c x = x -. (compress c 0.0);;
+(* k is knee, r is ratio, mo is an optional makeup
+ * x is input (dB). results is compressed value (dB) *)
+let compress (k, r, mo) x =
+  let c x = 
+    if (x < k) then x
+    else (k +. ((x -. k) /. r)) in
+  let m = match mo with 
+        | Some m -> m -. (c 0.0)
+        | None -> 0.0 in
+  m +. (c x)
 
-let compress_makeup c y x =
-  (makeup c y) +. (compress c x);;
-
-let db_of_amp x = 20.0 *. log10 x;;
-let amp_of_db u = 10.0 ** (u /. 20.);;
-let add_db u1 u2 = db_of_amp ((amp_of_db u1) +. (amp_of_db u2));;
+let db_of_amp x = 20.0 *. log10 x
+let amp_of_db u = 10.0 ** (u /. 20.)
+let add_db u1 u2 = db_of_amp ((amp_of_db u1) +. (amp_of_db u2))
 
 (* this simulates inputs to generate compressor outputs 
- * result is a list of (input, output) pairs
- * *)
-let render c mopt =
+ * result is a list of (input, output) pairs *)
+let render c =
   let incr = 0.5 in
   let start, end0 = -60.0, 0.0 in
   let rec f zz i =
     if i > end0 then zz
-    else (
-      let j = match mopt with
-        | None -> compress c i
-        | Some m -> compress_makeup c m i in
-      f ((i, j) :: zz) (i +. incr)
-    ) in
+    else (f ((i, c i) :: zz) (i +. incr)) in
   f [] start
   |> L.rev
-;;
 
-(* this just prints a series of compressor outputs in
- * sep-separated format *)
+(* prints compressor outputs in sep-separated format *)
 let rec print sep xss =
   let sof = string_of_float in
   let rec f xss =
@@ -52,23 +45,29 @@ let rec print sep xss =
       f (L.map L.tl xss)
     ) in
   f xss
+
+let lightc = (-20.0, 4.0, Some (-6.0)) (* light compressor, high knee *)
+let heavyc = (-58.0, 100.0, Some (-24.0)) (* heavy compressor, low knee *)
+
+(* sequential compression, light then heavy *)
+let compressor_seq_light_heavy x =
+  compress lightc x |> amp_of_db |> compress heavyc
+
+let compressor_seq_heavy_light x =
+  compress heavyc x |> amp_of_db |> compress lightc 
+
+(* parallel compression *)
+let compressor_par x =
+  add_db (compress lightc x) (compress heavyc x)
 ;;
 
-(* adds together the simulated results of two compressors
- * results is the same format as the inputs
- *)
-let addys =
-  List.map2 (fun (x1, y1) (x2, y2) -> 
-      if (x1 <> x2) then raise (Invalid_argument "x vals not equal");
-      (x1, add_db y1 y2))
-;;
-
-(* done definitions. Now execute *)
-
-let xys1 = render (-20.0, 4.0) (Some (-6.0));;
-let xys2 = render (-58.0, 100.0) (Some (-24.0));;
-let xys3 = addys xys1 xys2;;
-
-(* output in tab-delimited format *)
-print "\t" [xys1; xys2; xys3]; print_string "\n";
+(* output in tab-delimited format:
+  * columns: input light heavy seq1 seq2 parallel *)
+print "\t" [
+  render (compress lightc);
+  render (compress heavyc);
+  render compressor_seq_light_heavy;
+  render compressor_seq_heavy_light;
+  render compressor_par
+]; print_string "\n";
 
