@@ -8,6 +8,11 @@ let compress c x =
   else (knee +. ((x -. knee) /. ratio))
 ;;
 
+let makeup c x = x -. (compress c 0.0);;
+
+let compress_makeup c y x =
+  (makeup c y) +. (compress c x);;
+
 let db_of_amp x = 20.0 *. log10 x;;
 let amp_of_db u = 10.0 ** (u /. 20.);;
 let add_db u1 u2 = db_of_amp ((amp_of_db u1) +. (amp_of_db u2));;
@@ -15,13 +20,15 @@ let add_db u1 u2 = db_of_amp ((amp_of_db u1) +. (amp_of_db u2));;
 (* this simulates inputs to generate compressor outputs 
  * result is a list of (input, output) pairs
  * *)
-let render c =
+let render c mopt =
   let incr = 0.5 in
   let start, end0 = -60.0, 0.0 in
   let rec f zz i =
     if i > end0 then zz
     else (
-      let j = compress c i in
+      let j = match mopt with
+        | None -> compress c i
+        | Some m -> compress_makeup c m i in
       f ((i, j) :: zz) (i +. incr)
     ) in
   f [] start
@@ -58,8 +65,8 @@ let addys =
 
 (* done definitions. Now execute *)
 
-let xys1 = render (-20.0, 4.0);;
-let xys2 = render (-58.0, 100.0);;
+let xys1 = render (-20.0, 4.0) (Some (-6.0));;
+let xys2 = render (-58.0, 100.0) (Some (-24.0));;
 let xys3 = addys xys1 xys2;;
 
 (* output in tab-delimited format *)
